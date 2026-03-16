@@ -11,42 +11,83 @@ LIVE_TICKERS = SECTOR_ETFS + [BENCHMARK]
 
 @st.cache_data(ttl=300)
 def load_live_snapshot():
-    data = yf.download(
-        LIVE_TICKERS,
-        period="5d",
-        interval="1d",
-        auto_adjust=True,
-        progress=False,
-        group_by="ticker"
-    )
+    try:
+        data = yf.download(
+            LIVE_TICKERS,
+            period="5d",
+            interval="1d",
+            auto_adjust=True,
+            progress=False
+        )
 
-    rows = []
+        if data.empty:
+            return pd.DataFrame()
 
-    for ticker in LIVE_TICKERS:
-        ticker_df = data[ticker].dropna()
-        if len(ticker_df) == 0:
-            continue
+        rows = []
 
-        latest_close = float(ticker_df["Close"].iloc[-1])
+        if isinstance(data.columns, pd.MultiIndex):
+            first_level = list(data.columns.get_level_values(0))
+            second_level = list(data.columns.get_level_values(1))
 
-        if len(ticker_df) >= 2:
-            prev_close = float(ticker_df["Close"].iloc[-2])
-            daily_return = (latest_close / prev_close) - 1
+            price_first = "Close" in first_level
+            ticker_first = BENCHMARK in first_level or any(t in first_level for t in SECTOR_ETFS)
+
+            for ticker in LIVE_TICKERS:
+                try:
+                    if ticker_first:
+                        ticker_df = data[ticker].dropna()
+                    elif price_first:
+                        ticker_df = data.xs(ticker, axis=1, level=1).dropna()
+                    else:
+                        continue
+
+                    if ticker_df.empty or "Close" not in ticker_df.columns:
+                        continue
+
+                    latest_close = float(ticker_df["Close"].iloc[-1])
+
+                    if len(ticker_df) >= 2:
+                        prev_close = float(ticker_df["Close"].iloc[-2])
+                        daily_return = (latest_close / prev_close) - 1
+                    else:
+                        prev_close = latest_close
+                        daily_return = 0.0
+
+                    rows.append({
+                        "Ticker": ticker,
+                        "Latest Price": latest_close,
+                        "Previous Close": prev_close,
+                        "Daily Return": daily_return
+                    })
+                except Exception:
+                    continue
+
         else:
-            prev_close = latest_close
-            daily_return = 0.0
+            ticker_df = data.dropna()
+            if not ticker_df.empty and "Close" in ticker_df.columns:
+                latest_close = float(ticker_df["Close"].iloc[-1])
 
-        rows.append({
-            "Ticker": ticker,
-            "Latest Price": latest_close,
-            "Previous Close": prev_close,
-            "Daily Return": daily_return
-        })
+                if len(ticker_df) >= 2:
+                    prev_close = float(ticker_df["Close"].iloc[-2])
+                    daily_return = (latest_close / prev_close) - 1
+                else:
+                    prev_close = latest_close
+                    daily_return = 0.0
 
-    return pd.DataFrame(rows)
+                rows.append({
+                    "Ticker": BENCHMARK,
+                    "Latest Price": latest_close,
+                    "Previous Close": prev_close,
+                    "Daily Return": daily_return
+                })
+
+        return pd.DataFrame(rows)
+
+    except Exception as e:
+        st.error(f"Live data error: {e}")
+        return pd.DataFrame()
 
 
-# Manual refresh button
 if st.button("Refresh live data now"):
     st.cache_data.clear()
     st.rerun()
@@ -58,7 +99,6 @@ st.write(
 )
 st.caption("Live market data refreshes every 5 minutes.")
 
-# Load core results
 results = pd.read_csv("results/backtest_results.csv", index_col=0, parse_dates=True)
 
 summary = pd.read_csv("results/performance_summary.csv", index_col=0, header=None)
@@ -69,7 +109,6 @@ summary.index.name = "Metric"
 
 weights_history = pd.read_csv("results/weights_history.csv", index_col=0, parse_dates=True)
 
-# Load Monte Carlo results
 mc_summary = pd.read_csv("results/monte_carlo_summary.csv", index_col=0, header=None)
 mc_summary.columns = ["Value"]
 mc_summary = mc_summary.iloc[1:].copy()
@@ -79,7 +118,6 @@ mc_summary.index.name = "Metric"
 portfolio_paths = pd.read_csv("results/portfolio_simulation_paths.csv", index_col=0)
 benchmark_paths = pd.read_csv("results/benchmark_simulation_paths.csv", index_col=0)
 
-# Live snapshot
 live_df = load_live_snapshot()
 
 st.subheader("Live Market Snapshot")
@@ -121,11 +159,9 @@ if not live_df.empty:
 else:
     st.warning("Live market snapshot could not be loaded.")
 
-# Performance summary
 st.subheader("Performance Summary")
 st.dataframe(summary, use_container_width=True)
 
-# Current regime
 st.subheader("Current Market Regime")
 current_regime = results["regime"].iloc[-1]
 
@@ -138,19 +174,16 @@ elif current_regime == "Defensive":
 else:
     st.info(f"Latest detected regime: {current_regime}")
 
-# Current weights
 st.subheader("Current Portfolio Weights")
 current_weights = weights_history.iloc[-1].sort_values(ascending=False)
 positive_weights = current_weights[current_weights > 0]
 st.dataframe(positive_weights, use_container_width=True)
 
-# Top sector tilts
 st.subheader("Top Sector Tilts")
 top_3 = positive_weights.head(3)
 tilt_text = ", ".join([f"{ticker} ({weight:.1%})" for ticker, weight in top_3.items()])
 st.write(f"**Top sector exposures:** {tilt_text}")
 
-# Model-implied move
 st.subheader("Model-Implied Portfolio Move Today")
 if not live_df.empty:
     live_returns = live_df.set_index("Ticker")["Daily Return"].to_dict()
@@ -168,25 +201,20 @@ if not live_df.empty:
     with col2:
         st.metric("SPY Return Today", f"{benchmark_live_return:.2%}")
 
-# Monte Carlo summary
 st.subheader("Monte Carlo Probability Summary")
 st.dataframe(mc_summary, use_container_width=True)
 
-# Monte Carlo portfolio paths
 st.subheader("Monte Carlo Simulated Portfolio Paths")
 sample_portfolio_paths = portfolio_paths.iloc[:, :100]
 st.line_chart(sample_portfolio_paths)
 
-# Monte Carlo benchmark paths
 st.subheader("Monte Carlo Simulated Benchmark Paths")
 sample_benchmark_paths = benchmark_paths.iloc[:, :100]
 st.line_chart(sample_benchmark_paths)
 
-# Growth chart
 st.subheader("Growth of $1")
 st.line_chart(results[["portfolio_growth", "benchmark_growth"]])
 
-# Drawdown chart
 st.subheader("Drawdown")
 drawdown_df = pd.DataFrame(index=results.index)
 drawdown_df["portfolio_drawdown"] = (
@@ -199,7 +227,6 @@ drawdown_df["benchmark_drawdown"] = (
 
 st.line_chart(drawdown_df)
 
-# Rolling Sharpe
 st.subheader("Rolling 12-Month Sharpe Ratio")
 rolling_window = 12
 
@@ -216,7 +243,6 @@ rolling_sharpe["benchmark_rolling_sharpe"] = (
 
 st.line_chart(rolling_sharpe)
 
-# Rolling volatility
 st.subheader("Rolling 12-Month Volatility")
 rolling_vol = pd.DataFrame(index=results.index)
 
@@ -230,15 +256,12 @@ rolling_vol["benchmark_rolling_volatility"] = (
 
 st.line_chart(rolling_vol)
 
-# Monthly returns
 st.subheader("Monthly Returns")
 st.line_chart(results[["portfolio_return", "benchmark_return"]])
 
-# Regime distribution
 st.subheader("Regime Distribution")
 regime_counts = results["regime"].value_counts()
 st.bar_chart(regime_counts)
 
-# Recent data
 st.subheader("Recent Backtest Data")
 st.dataframe(results.tail(20), use_container_width=True)
