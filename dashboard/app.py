@@ -119,6 +119,23 @@ st.write(f"**Latest detected regime:** {current_regime}")
 st.subheader("Current Portfolio Weights")
 current_weights = weights_history.iloc[-1].sort_values(ascending=False)
 st.dataframe(current_weights[current_weights > 0], use_container_width=True)
+st.subheader("Model-Implied Portfolio Move Today")
+
+if not live_df.empty:
+    live_returns = live_df.set_index("Ticker")["Daily Return"].to_dict()
+
+    implied_move = 0.0
+    for ticker, weight in current_weights.items():
+        if ticker in live_returns:
+            implied_move += weight * live_returns[ticker]
+
+    benchmark_live_return = live_returns.get(BENCHMARK, 0.0)
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("Model-Implied Portfolio Return Today", f"{implied_move:.2%}")
+    with col2:
+        st.metric("SPY Return Today", f"{benchmark_live_return:.2%}")
 
 # Monte Carlo summary
 st.subheader("Monte Carlo Probability Summary")
