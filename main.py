@@ -1,5 +1,5 @@
 import os
-from src.plots import plot_growth, plot_regimes
+from src.plots import plot_growth, plot_regimes, plot_drawdown
 from src.data_loader import download_market_data, download_fred_data
 from src.preprocess import load_raw_data, prepare_monthly_data
 from src.regimes import add_regime_features, assign_regimes
@@ -41,17 +41,19 @@ def run_pipeline():
     df = df.dropna()
 
     print("Running backtest...")
-    results = run_backtest(df)
+    results, weights_df = run_backtest(df)
 
     print("Calculating performance summary...")
     summary = summarize_performance(results)
-    print("Creating charts---")
+    print("Creating charts...")
     plot_growth(results)
     plot_regimes(results)
+    plot_drawdown(results) 
 
     os.makedirs("results", exist_ok=True)
     results.to_csv("results/backtest_results.csv")
     summary.to_csv("results/performance_summary.csv")
+    weights_df.to_csv("results/weights_history.csv")
 
     print("\nPerformance Summary:")
     print(summary)
@@ -59,6 +61,7 @@ def run_pipeline():
     print("\nSaved:")
     print("- results/backtest_results.csv")
     print("- results/performance_summary.csv")
+    print("- results/weights_history.csv")
 
 
 def main():

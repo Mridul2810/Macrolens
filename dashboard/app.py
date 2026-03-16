@@ -13,12 +13,31 @@ summary.columns = ["Value"]
 summary = summary.iloc[1:].copy()
 summary.index = summary.index.astype(str)
 summary.index.name = "Metric"
+weights_history = pd.read_csv("results/weights_history.csv", index_col=0, parse_dates=True)
 
 st.subheader("Performance Summary")
 st.dataframe(summary)
+st.subheader("Current Regime")
+current_regime = results["regime"].iloc[-1]
+st.write(f"**Latest detected regime:** {current_regime}")
+
+st.subheader("Current Portfolio Weights")
+current_weights = weights_history.iloc[-1].sort_values(ascending=False)
+st.dataframe(current_weights[current_weights > 0])
 
 st.subheader("Growth of $1")
 st.line_chart(results[["portfolio_growth", "benchmark_growth"]])
+st.subheader("Drawdown")
+drawdown_df = pd.DataFrame(index=results.index)
+drawdown_df["portfolio_drawdown"] = (
+    results["portfolio_growth"] - results["portfolio_growth"].cummax()
+) / results["portfolio_growth"].cummax()
+
+drawdown_df["benchmark_drawdown"] = (
+    results["benchmark_growth"] - results["benchmark_growth"].cummax()
+) / results["benchmark_growth"].cummax()
+
+st.line_chart(drawdown_df)
 
 st.subheader("Monthly Returns")
 st.line_chart(results[["portfolio_return", "benchmark_return"]])

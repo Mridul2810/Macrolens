@@ -9,6 +9,7 @@ def run_backtest(df):
     portfolio_returns = []
     benchmark_returns = []
     regimes = []
+    weights_history = []
     prev_weights = None
 
     for date, row in df.iterrows():
@@ -29,6 +30,7 @@ def run_backtest(df):
         portfolio_returns.append(net_ret)
         benchmark_returns.append(row[BENCHMARK])
         regimes.append(regime)
+        weights_history.append(weights.copy())
 
         prev_weights = weights
 
@@ -41,4 +43,6 @@ def run_backtest(df):
     results["portfolio_growth"] = (1 + results["portfolio_return"]).cumprod()
     results["benchmark_growth"] = (1 + results["benchmark_return"]).cumprod()
 
-    return results
+    weights_df = pd.DataFrame(weights_history, index=df.index)
+
+    return results, weights_df
