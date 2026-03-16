@@ -1,12 +1,14 @@
 import pandas as pd
 import streamlit as st
-import yfinance as yf
+import requests
 
 st.set_page_config(page_title="MacroLens Dashboard", layout="wide")
 
 SECTOR_ETFS = ["XLF", "XLK", "XLE", "XLV", "XLI", "XLP", "XLU", "XLY"]
 BENCHMARK = "SPY"
 LIVE_TICKERS = SECTOR_ETFS + [BENCHMARK]
+
+ALPHA_VANTAGE_API_KEY = st.secrets["ALPHA_VANTAGE_API_KEY"]
 
 
 @st.cache_data(ttl=300)
@@ -16,23 +18,33 @@ def load_live_snapshot():
 
     for ticker in LIVE_TICKERS:
         try:
-            ticker_obj = yf.Ticker(ticker)
-            ticker_df = ticker_obj.history(period="5d", auto_adjust=True).dropna()
+            url = "https://www.alphavantage.co/query"
+            params = {
+                "function": "GLOBAL_QUOTE",
+                "symbol": ticker,
+                "apikey": ALPHA_VANTAGE_API_KEY
+            }
 
-            debug_messages.append(f"{ticker}: rows={len(ticker_df)}, cols={list(ticker_df.columns)}")
+            response = requests.get(url, params=params, timeout=20)
+            response.raise_for_status()
+            data = response.json()
 
-            if ticker_df.empty or "Close" not in ticker_df.columns:
-                debug_messages.append(f"{ticker}: skipped because empty or no Close column")
+            quote = data.get("Global Quote", {})
+
+            if not quote:
+                debug_messages.append(f"{ticker}: no quote returned -> {data}")
                 continue
 
-            latest_close = float(ticker_df["Close"].iloc[-1])
+            price_str = quote.get("05. price")
+            prev_close_str = quote.get("08. previous close")
 
-            if len(ticker_df) >= 2:
-                prev_close = float(ticker_df["Close"].iloc[-2])
-                daily_return = (latest_close / prev_close) - 1
-            else:
-                prev_close = latest_close
-                daily_return = 0.0
+            if not price_str or not prev_close_str:
+                debug_messages.append(f"{ticker}: missing price fields -> {quote}")
+                continue
+
+            latest_close = float(price_str)
+            prev_close = float(prev_close_str)
+            daily_return = (latest_close / prev_close) - 1 if prev_close != 0 else 0.0
 
             rows.append({
                 "Ticker": ticker,
