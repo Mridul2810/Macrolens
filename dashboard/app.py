@@ -39,6 +39,24 @@ drawdown_df["benchmark_drawdown"] = (
 
 st.line_chart(drawdown_df)
 
+st.subheader("Rolling 12-Month Sharpe Ratio")
+
+rolling_window = 12
+
+rolling_sharpe = pd.DataFrame(index=results.index)
+
+rolling_sharpe["portfolio_rolling_sharpe"] = (
+    results["portfolio_return"].rolling(rolling_window).mean()
+    / results["portfolio_return"].rolling(rolling_window).std()
+) * (12 ** 0.5)
+
+rolling_sharpe["benchmark_rolling_sharpe"] = (
+    results["benchmark_return"].rolling(rolling_window).mean()
+    / results["benchmark_return"].rolling(rolling_window).std()
+) * (12 ** 0.5)
+
+st.line_chart(rolling_sharpe)
+
 st.subheader("Monthly Returns")
 st.line_chart(results[["portfolio_return", "benchmark_return"]])
 
