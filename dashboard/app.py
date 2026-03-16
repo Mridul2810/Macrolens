@@ -6,69 +6,8 @@ st.set_page_config(page_title="MacroLens Dashboard", layout="wide")
 
 SECTOR_ETFS = ["XLF", "XLK", "XLE", "XLV", "XLI", "XLP", "XLU", "XLY"]
 BENCHMARK = "SPY"
-LIVE_TICKERS = SECTOR_ETFS + [BENCHMARK]
 
 ALPHA_VANTAGE_API_KEY = st.secrets["ALPHA_VANTAGE_API_KEY"]
-
-
-@st.cache_data(ttl=300)
-def load_live_snapshot():
-    rows = []
-    debug_messages = []
-
-    for ticker in LIVE_TICKERS:
-        try:
-            url = "https://www.alphavantage.co/query"
-            params = {
-                "function": "GLOBAL_QUOTE",
-                "symbol": ticker,
-                "apikey": ALPHA_VANTAGE_API_KEY
-            }
-
-            response = requests.get(url, params=params, timeout=20)
-            response.raise_for_status()
-            data = response.json()
-
-            quote = data.get("Global Quote", {})
-
-            if not quote:
-                debug_messages.append(f"{ticker}: no quote returned -> {data}")
-                continue
-
-            price_str = quote.get("05. price")
-            prev_close_str = quote.get("08. previous close")
-
-            if not price_str or not prev_close_str:
-                debug_messages.append(f"{ticker}: missing price fields -> {quote}")
-                continue
-
-            latest_close = float(price_str)
-            prev_close = float(prev_close_str)
-            daily_return = (latest_close / prev_close) - 1 if prev_close != 0 else 0.0
-
-            rows.append({
-                "Ticker": ticker,
-                "Latest Price": latest_close,
-                "Previous Close": prev_close,
-                "Daily Return": daily_return
-            })
-
-        except Exception as e:
-            debug_messages.append(f"{ticker}: ERROR -> {str(e)}")
-
-    return pd.DataFrame(rows), debug_messages
-
-
-if st.button("Refresh live data now"):
-    st.cache_data.clear()
-    st.rerun()
-
-st.title("MacroLens: Regime-Based Portfolio Strategy")
-st.write(
-    "This dashboard shows the backtest results of a macro regime-based sector "
-    "allocation strategy plus a near-live ETF market snapshot."
-)
-st.caption("Live market data refreshes every 5 minutes.")
 
 results = pd.read_csv("results/backtest_results.csv", index_col=0, parse_dates=True)
 
@@ -89,7 +28,69 @@ mc_summary.index.name = "Metric"
 portfolio_paths = pd.read_csv("results/portfolio_simulation_paths.csv", index_col=0)
 benchmark_paths = pd.read_csv("results/benchmark_simulation_paths.csv", index_col=0)
 
-live_df, debug_messages = load_live_snapshot()
+current_weights = weights_history.iloc[-1].sort_values(ascending=False)
+positive_weights = current_weights[current_weights > 0]
+top_live_tickers = [ticker for ticker in positive_weights.index[:3] if ticker != BENCHMARK]
+LIVE_TICKERS = [BENCHMARK] + top_live_tickers
+
+
+@st.cache_data(ttl=3600)
+def load_live_snapshot():
+    rows = []
+
+    for ticker in LIVE_TICKERS:
+        try:
+            url = "https://www.alphavantage.co/query"
+            params = {
+                "function": "GLOBAL_QUOTE",
+                "symbol": ticker,
+                "apikey": ALPHA_VANTAGE_API_KEY
+            }
+
+            response = requests.get(url, params=params, timeout=20)
+            response.raise_for_status()
+            data = response.json()
+
+            quote = data.get("Global Quote", {})
+
+            if not quote:
+                continue
+
+            price_str = quote.get("05. price")
+            prev_close_str = quote.get("08. previous close")
+
+            if not price_str or not prev_close_str:
+                continue
+
+            latest_close = float(price_str)
+            prev_close = float(prev_close_str)
+            daily_return = (latest_close / prev_close) - 1 if prev_close != 0 else 0.0
+
+            rows.append({
+                "Ticker": ticker,
+                "Latest Price": latest_close,
+                "Previous Close": prev_close,
+                "Daily Return": daily_return
+            })
+
+        except Exception:
+            continue
+
+    return pd.DataFrame(rows)
+
+
+if st.button("Refresh live data now"):
+    st.cache_data.clear()
+    st.rerun()
+
+st.title("MacroLens: Regime-Based Portfolio Strategy")
+st.write(
+    "This dashboard shows the backtest results of a macro regime-based sector "
+    "allocation strategy plus a near-live ETF market snapshot."
+)
+st.caption("Live market data refreshes every 60 minutes.")
+
+live_df = load_live_snapshot()
 
 st.subheader("Live Market Snapshot")
 if not live_df.empty:
@@ -113,25 +114,14 @@ if not live_df.empty:
     with col2:
         if not sector_only.empty:
             best_sector = sector_only.sort_values("Daily Return", ascending=False).iloc[0]
-            st.metric(
-                "Strongest Sector Today",
-                best_sector["Ticker"],
-                f"{best_sector['Daily Return']:.2%}"
-            )
+            st.metric("Strongest Live Tilt", best_sector["Ticker"], f"{best_sector['Daily Return']:.2%}")
 
     with col3:
         if not sector_only.empty:
             worst_sector = sector_only.sort_values("Daily Return", ascending=True).iloc[0]
-            st.metric(
-                "Weakest Sector Today",
-                worst_sector["Ticker"],
-                f"{worst_sector['Daily Return']:.2%}"
-            )
+            st.metric("Weakest Live Tilt", worst_sector["Ticker"], f"{worst_sector['Daily Return']:.2%}")
 else:
-    st.warning("Live market snapshot could not be loaded.")
-    st.subheader("Live Snapshot Debug")
-    for msg in debug_messages:
-        st.write(msg)
+    st.warning("Live market snapshot is temporarily unavailable.")
 
 st.subheader("Performance Summary")
 st.dataframe(summary, use_container_width=True)
@@ -149,8 +139,6 @@ else:
     st.info(f"Latest detected regime: {current_regime}")
 
 st.subheader("Current Portfolio Weights")
-current_weights = weights_history.iloc[-1].sort_values(ascending=False)
-positive_weights = current_weights[current_weights > 0]
 st.dataframe(positive_weights, use_container_width=True)
 
 st.subheader("Top Sector Tilts")
