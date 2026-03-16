@@ -1,4 +1,5 @@
 import os
+from src.monte_carlo import monte_carlo_summary
 from src.plots import plot_growth, plot_regimes, plot_drawdown
 from src.data_loader import download_market_data, download_fred_data
 from src.preprocess import load_raw_data, prepare_monthly_data
@@ -45,6 +46,11 @@ def run_pipeline():
 
     print("Calculating performance summary...")
     summary = summarize_performance(results)
+    print("Running Monte Carlo simulation...")
+    mc_summary, portfolio_paths, benchmark_paths = monte_carlo_summary(
+    results["portfolio_return"],
+    results["benchmark_return"]
+)
     print("Creating charts...")
     plot_growth(results)
     plot_regimes(results)
@@ -54,6 +60,9 @@ def run_pipeline():
     results.to_csv("results/backtest_results.csv")
     summary.to_csv("results/performance_summary.csv")
     weights_df.to_csv("results/weights_history.csv")
+    mc_summary.to_csv("results/monte_carlo_summary.csv")
+    portfolio_paths.to_csv("results/portfolio_simulation_paths.csv")
+    benchmark_paths.to_csv("results/benchmark_simulation_paths.csv")
 
     print("\nPerformance Summary:")
     print(summary)
@@ -62,6 +71,9 @@ def run_pipeline():
     print("- results/backtest_results.csv")
     print("- results/performance_summary.csv")
     print("- results/weights_history.csv")
+    print("- results/monte_carlo_summary.csv")
+    print("- results/portfolio_simulation_paths.csv")
+    print("- results/benchmark_simulation_paths.csv")
 
 
 def main():
