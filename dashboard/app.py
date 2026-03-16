@@ -12,6 +12,7 @@ LIVE_TICKERS = SECTOR_ETFS + [BENCHMARK]
 @st.cache_data(ttl=300)
 def load_live_snapshot():
     rows = []
+    debug_messages = []
 
     for ticker in LIVE_TICKERS:
         try:
@@ -24,7 +25,10 @@ def load_live_snapshot():
                 threads=False
             ).dropna()
 
+            debug_messages.append(f"{ticker}: rows={len(ticker_df)}, cols={list(ticker_df.columns)}")
+
             if ticker_df.empty or "Close" not in ticker_df.columns:
+                debug_messages.append(f"{ticker}: skipped because empty or no Close column")
                 continue
 
             latest_close = float(ticker_df["Close"].iloc[-1])
@@ -43,10 +47,10 @@ def load_live_snapshot():
                 "Daily Return": daily_return
             })
 
-        except Exception:
-            continue
+        except Exception as e:
+            debug_messages.append(f"{ticker}: ERROR -> {str(e)}")
 
-    return pd.DataFrame(rows)
+    return pd.DataFrame(rows), debug_messages
 
 
 if st.button("Refresh live data now"):
@@ -79,7 +83,7 @@ mc_summary.index.name = "Metric"
 portfolio_paths = pd.read_csv("results/portfolio_simulation_paths.csv", index_col=0)
 benchmark_paths = pd.read_csv("results/benchmark_simulation_paths.csv", index_col=0)
 
-live_df = load_live_snapshot()
+live_df, debug_messages = load_live_snapshot()
 
 st.subheader("Live Market Snapshot")
 if not live_df.empty:
@@ -103,22 +107,17 @@ if not live_df.empty:
     with col2:
         if not sector_only.empty:
             best_sector = sector_only.sort_values("Daily Return", ascending=False).iloc[0]
-            st.metric(
-                "Strongest Sector Today",
-                best_sector["Ticker"],
-                f"{best_sector['Daily Return']:.2%}"
-            )
+            st.metric("Strongest Sector Today", best_sector["Ticker"], f"{best_sector['Daily Return']:.2%}")
 
     with col3:
         if not sector_only.empty:
             worst_sector = sector_only.sort_values("Daily Return", ascending=True).iloc[0]
-            st.metric(
-                "Weakest Sector Today",
-                worst_sector["Ticker"],
-                f"{worst_sector['Daily Return']:.2%}"
-            )
+            st.metric("Weakest Sector Today", worst_sector["Ticker"], f"{worst_sector['Daily Return']:.2%}")
 else:
     st.warning("Live market snapshot could not be loaded.")
+    st.subheader("Live Snapshot Debug")
+    for msg in debug_messages:
+        st.write(msg)
 
 st.subheader("Performance Summary")
 st.dataframe(summary, use_container_width=True)
@@ -166,12 +165,10 @@ st.subheader("Monte Carlo Probability Summary")
 st.dataframe(mc_summary, use_container_width=True)
 
 st.subheader("Monte Carlo Simulated Portfolio Paths")
-sample_portfolio_paths = portfolio_paths.iloc[:, :100]
-st.line_chart(sample_portfolio_paths)
+st.line_chart(portfolio_paths.iloc[:, :100])
 
 st.subheader("Monte Carlo Simulated Benchmark Paths")
-sample_benchmark_paths = benchmark_paths.iloc[:, :100]
-st.line_chart(sample_benchmark_paths)
+st.line_chart(benchmark_paths.iloc[:, :100])
 
 st.subheader("Growth of $1")
 st.line_chart(results[["portfolio_growth", "benchmark_growth"]])
@@ -181,48 +178,38 @@ drawdown_df = pd.DataFrame(index=results.index)
 drawdown_df["portfolio_drawdown"] = (
     results["portfolio_growth"] - results["portfolio_growth"].cummax()
 ) / results["portfolio_growth"].cummax()
-
 drawdown_df["benchmark_drawdown"] = (
     results["benchmark_growth"] - results["benchmark_growth"].cummax()
 ) / results["benchmark_growth"].cummax()
-
 st.line_chart(drawdown_df)
 
 st.subheader("Rolling 12-Month Sharpe Ratio")
-rolling_window = 12
-
 rolling_sharpe = pd.DataFrame(index=results.index)
 rolling_sharpe["portfolio_rolling_sharpe"] = (
-    results["portfolio_return"].rolling(rolling_window).mean()
-    / results["portfolio_return"].rolling(rolling_window).std()
+    results["portfolio_return"].rolling(12).mean()
+    / results["portfolio_return"].rolling(12).std()
 ) * (12 ** 0.5)
-
 rolling_sharpe["benchmark_rolling_sharpe"] = (
-    results["benchmark_return"].rolling(rolling_window).mean()
-    / results["benchmark_return"].rolling(rolling_window).std()
+    results["benchmark_return"].rolling(12).mean()
+    / results["benchmark_return"].rolling(12).std()
 ) * (12 ** 0.5)
-
 st.line_chart(rolling_sharpe)
 
 st.subheader("Rolling 12-Month Volatility")
 rolling_vol = pd.DataFrame(index=results.index)
-
 rolling_vol["portfolio_rolling_volatility"] = (
     results["portfolio_return"].rolling(12).std()
 ) * (12 ** 0.5)
-
 rolling_vol["benchmark_rolling_volatility"] = (
     results["benchmark_return"].rolling(12).std()
 ) * (12 ** 0.5)
-
 st.line_chart(rolling_vol)
 
 st.subheader("Monthly Returns")
 st.line_chart(results[["portfolio_return", "benchmark_return"]])
 
 st.subheader("Regime Distribution")
-regime_counts = results["regime"].value_counts()
-st.bar_chart(regime_counts)
+st.bar_chart(results["regime"].value_counts())
 
 st.subheader("Recent Backtest Data")
 st.dataframe(results.tail(20), use_container_width=True)
