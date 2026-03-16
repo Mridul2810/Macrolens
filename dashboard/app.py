@@ -16,14 +16,8 @@ def load_live_snapshot():
 
     for ticker in LIVE_TICKERS:
         try:
-            ticker_df = yf.download(
-                ticker,
-                period="5d",
-                interval="1d",
-                auto_adjust=True,
-                progress=False,
-                threads=False
-            ).dropna()
+            ticker_obj = yf.Ticker(ticker)
+            ticker_df = ticker_obj.history(period="5d", auto_adjust=True).dropna()
 
             debug_messages.append(f"{ticker}: rows={len(ticker_df)}, cols={list(ticker_df.columns)}")
 
@@ -107,12 +101,20 @@ if not live_df.empty:
     with col2:
         if not sector_only.empty:
             best_sector = sector_only.sort_values("Daily Return", ascending=False).iloc[0]
-            st.metric("Strongest Sector Today", best_sector["Ticker"], f"{best_sector['Daily Return']:.2%}")
+            st.metric(
+                "Strongest Sector Today",
+                best_sector["Ticker"],
+                f"{best_sector['Daily Return']:.2%}"
+            )
 
     with col3:
         if not sector_only.empty:
             worst_sector = sector_only.sort_values("Daily Return", ascending=True).iloc[0]
-            st.metric("Weakest Sector Today", worst_sector["Ticker"], f"{worst_sector['Daily Return']:.2%}")
+            st.metric(
+                "Weakest Sector Today",
+                worst_sector["Ticker"],
+                f"{worst_sector['Daily Return']:.2%}"
+            )
 else:
     st.warning("Live market snapshot could not be loaded.")
     st.subheader("Live Snapshot Debug")
