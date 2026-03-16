@@ -55,6 +55,20 @@ rolling_sharpe["benchmark_rolling_sharpe"] = (
     / results["benchmark_return"].rolling(rolling_window).std()
 ) * (12 ** 0.5)
 
+st.subheader("Rolling 12-Month Volatility")
+
+rolling_vol = pd.DataFrame(index=results.index)
+
+rolling_vol["portfolio_rolling_volatility"] = (
+    results["portfolio_return"].rolling(12).std()
+) * (12 ** 0.5)
+
+rolling_vol["benchmark_rolling_volatility"] = (
+    results["benchmark_return"].rolling(12).std()
+) * (12 ** 0.5)
+
+st.line_chart(rolling_vol)
+
 st.line_chart(rolling_sharpe)
 
 st.subheader("Monthly Returns")
