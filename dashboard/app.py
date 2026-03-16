@@ -52,7 +52,10 @@ if st.button("Refresh live data now"):
     st.rerun()
 
 st.title("MacroLens: Regime-Based Portfolio Strategy")
-st.write("This dashboard shows the backtest results of a macro regime-based sector allocation strategy plus a near-live ETF market snapshot.")
+st.write(
+    "This dashboard shows the backtest results of a macro regime-based sector "
+    "allocation strategy plus a near-live ETF market snapshot."
+)
 st.caption("Live market data refreshes every 5 minutes.")
 
 # Load core results
@@ -88,39 +91,67 @@ if not live_df.empty:
     st.dataframe(display_live, use_container_width=True)
 
     benchmark_row = live_df[live_df["Ticker"] == BENCHMARK]
-    if not benchmark_row.empty:
-        spy_price = benchmark_row["Latest Price"].iloc[0]
-        spy_move = benchmark_row["Daily Return"].iloc[0]
-        st.metric("SPY Live Price", f"{spy_price:.2f}", f"{spy_move:.2%}")
-
     sector_only = live_df[live_df["Ticker"] != BENCHMARK].copy()
-    if not sector_only.empty:
-        best_sector = sector_only.sort_values("Daily Return", ascending=False).iloc[0]
-        worst_sector = sector_only.sort_values("Daily Return", ascending=True).iloc[0]
 
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("Strongest Sector Today", best_sector["Ticker"], f"{best_sector['Daily Return']:.2%}")
-        with col2:
-            st.metric("Weakest Sector Today", worst_sector["Ticker"], f"{worst_sector['Daily Return']:.2%}")
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        if not benchmark_row.empty:
+            spy_price = benchmark_row["Latest Price"].iloc[0]
+            spy_move = benchmark_row["Daily Return"].iloc[0]
+            st.metric("SPY Live Price", f"{spy_price:.2f}", f"{spy_move:.2%}")
+
+    with col2:
+        if not sector_only.empty:
+            best_sector = sector_only.sort_values("Daily Return", ascending=False).iloc[0]
+            st.metric(
+                "Strongest Sector Today",
+                best_sector["Ticker"],
+                f"{best_sector['Daily Return']:.2%}"
+            )
+
+    with col3:
+        if not sector_only.empty:
+            worst_sector = sector_only.sort_values("Daily Return", ascending=True).iloc[0]
+            st.metric(
+                "Weakest Sector Today",
+                worst_sector["Ticker"],
+                f"{worst_sector['Daily Return']:.2%}"
+            )
 else:
     st.warning("Live market snapshot could not be loaded.")
 
 # Performance summary
 st.subheader("Performance Summary")
-st.dataframe(summary)
+st.dataframe(summary, use_container_width=True)
 
 # Current regime
-st.subheader("Current Regime")
+st.subheader("Current Market Regime")
 current_regime = results["regime"].iloc[-1]
-st.write(f"**Latest detected regime:** {current_regime}")
+
+if current_regime == "Growth":
+    st.success(f"Latest detected regime: {current_regime}")
+elif current_regime == "Inflationary":
+    st.warning(f"Latest detected regime: {current_regime}")
+elif current_regime == "Defensive":
+    st.error(f"Latest detected regime: {current_regime}")
+else:
+    st.info(f"Latest detected regime: {current_regime}")
 
 # Current weights
 st.subheader("Current Portfolio Weights")
 current_weights = weights_history.iloc[-1].sort_values(ascending=False)
-st.dataframe(current_weights[current_weights > 0], use_container_width=True)
-st.subheader("Model-Implied Portfolio Move Today")
+positive_weights = current_weights[current_weights > 0]
+st.dataframe(positive_weights, use_container_width=True)
 
+# Top sector tilts
+st.subheader("Top Sector Tilts")
+top_3 = positive_weights.head(3)
+tilt_text = ", ".join([f"{ticker} ({weight:.1%})" for ticker, weight in top_3.items()])
+st.write(f"**Top sector exposures:** {tilt_text}")
+
+# Model-implied move
+st.subheader("Model-Implied Portfolio Move Today")
 if not live_df.empty:
     live_returns = live_df.set_index("Ticker")["Daily Return"].to_dict()
 
@@ -139,7 +170,7 @@ if not live_df.empty:
 
 # Monte Carlo summary
 st.subheader("Monte Carlo Probability Summary")
-st.dataframe(mc_summary)
+st.dataframe(mc_summary, use_container_width=True)
 
 # Monte Carlo portfolio paths
 st.subheader("Monte Carlo Simulated Portfolio Paths")
