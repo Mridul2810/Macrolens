@@ -1,10 +1,59 @@
 import pandas as pd
 import streamlit as st
+import yfinance as yf
 
 st.set_page_config(page_title="MacroLens Dashboard", layout="wide")
 
+SECTOR_ETFS = ["XLF", "XLK", "XLE", "XLV", "XLI", "XLP", "XLU", "XLY"]
+BENCHMARK = "SPY"
+LIVE_TICKERS = SECTOR_ETFS + [BENCHMARK]
+
+
+@st.cache_data(ttl=300)
+def load_live_snapshot():
+    data = yf.download(
+        LIVE_TICKERS,
+        period="5d",
+        interval="1d",
+        auto_adjust=True,
+        progress=False,
+        group_by="ticker"
+    )
+
+    rows = []
+
+    for ticker in LIVE_TICKERS:
+        ticker_df = data[ticker].dropna()
+        if len(ticker_df) == 0:
+            continue
+
+        latest_close = float(ticker_df["Close"].iloc[-1])
+
+        if len(ticker_df) >= 2:
+            prev_close = float(ticker_df["Close"].iloc[-2])
+            daily_return = (latest_close / prev_close) - 1
+        else:
+            prev_close = latest_close
+            daily_return = 0.0
+
+        rows.append({
+            "Ticker": ticker,
+            "Latest Price": latest_close,
+            "Previous Close": prev_close,
+            "Daily Return": daily_return
+        })
+
+    return pd.DataFrame(rows)
+
+
+# Manual refresh button
+if st.button("Refresh live data now"):
+    st.cache_data.clear()
+    st.rerun()
+
 st.title("MacroLens: Regime-Based Portfolio Strategy")
-st.write("This dashboard shows the backtest results of a macro regime-based sector allocation strategy.")
+st.write("This dashboard shows the backtest results of a macro regime-based sector allocation strategy plus a near-live ETF market snapshot.")
+st.caption("Live market data refreshes every 5 minutes.")
 
 # Load core results
 results = pd.read_csv("results/backtest_results.csv", index_col=0, parse_dates=True)
@@ -27,6 +76,36 @@ mc_summary.index.name = "Metric"
 portfolio_paths = pd.read_csv("results/portfolio_simulation_paths.csv", index_col=0)
 benchmark_paths = pd.read_csv("results/benchmark_simulation_paths.csv", index_col=0)
 
+# Live snapshot
+live_df = load_live_snapshot()
+
+st.subheader("Live Market Snapshot")
+if not live_df.empty:
+    display_live = live_df.copy()
+    display_live["Latest Price"] = display_live["Latest Price"].map(lambda x: round(x, 2))
+    display_live["Previous Close"] = display_live["Previous Close"].map(lambda x: round(x, 2))
+    display_live["Daily Return"] = display_live["Daily Return"].map(lambda x: f"{x:.2%}")
+    st.dataframe(display_live, use_container_width=True)
+
+    benchmark_row = live_df[live_df["Ticker"] == BENCHMARK]
+    if not benchmark_row.empty:
+        spy_price = benchmark_row["Latest Price"].iloc[0]
+        spy_move = benchmark_row["Daily Return"].iloc[0]
+        st.metric("SPY Live Price", f"{spy_price:.2f}", f"{spy_move:.2%}")
+
+    sector_only = live_df[live_df["Ticker"] != BENCHMARK].copy()
+    if not sector_only.empty:
+        best_sector = sector_only.sort_values("Daily Return", ascending=False).iloc[0]
+        worst_sector = sector_only.sort_values("Daily Return", ascending=True).iloc[0]
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Strongest Sector Today", best_sector["Ticker"], f"{best_sector['Daily Return']:.2%}")
+        with col2:
+            st.metric("Weakest Sector Today", worst_sector["Ticker"], f"{worst_sector['Daily Return']:.2%}")
+else:
+    st.warning("Live market snapshot could not be loaded.")
+
 # Performance summary
 st.subheader("Performance Summary")
 st.dataframe(summary)
@@ -39,7 +118,7 @@ st.write(f"**Latest detected regime:** {current_regime}")
 # Current weights
 st.subheader("Current Portfolio Weights")
 current_weights = weights_history.iloc[-1].sort_values(ascending=False)
-st.dataframe(current_weights[current_weights > 0])
+st.dataframe(current_weights[current_weights > 0], use_container_width=True)
 
 # Monte Carlo summary
 st.subheader("Monte Carlo Probability Summary")
@@ -114,4 +193,4 @@ st.bar_chart(regime_counts)
 
 # Recent data
 st.subheader("Recent Backtest Data")
-st.dataframe(results.tail(20))
+st.dataframe(results.tail(20), use_container_width=True)
