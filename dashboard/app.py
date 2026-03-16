@@ -11,81 +11,42 @@ LIVE_TICKERS = SECTOR_ETFS + [BENCHMARK]
 
 @st.cache_data(ttl=300)
 def load_live_snapshot():
-    try:
-        data = yf.download(
-            LIVE_TICKERS,
-            period="5d",
-            interval="1d",
-            auto_adjust=True,
-            progress=False
-        )
+    rows = []
 
-        if data.empty:
-            return pd.DataFrame()
+    for ticker in LIVE_TICKERS:
+        try:
+            ticker_df = yf.download(
+                ticker,
+                period="5d",
+                interval="1d",
+                auto_adjust=True,
+                progress=False,
+                threads=False
+            ).dropna()
 
-        rows = []
+            if ticker_df.empty or "Close" not in ticker_df.columns:
+                continue
 
-        if isinstance(data.columns, pd.MultiIndex):
-            first_level = list(data.columns.get_level_values(0))
-            second_level = list(data.columns.get_level_values(1))
+            latest_close = float(ticker_df["Close"].iloc[-1])
 
-            price_first = "Close" in first_level
-            ticker_first = BENCHMARK in first_level or any(t in first_level for t in SECTOR_ETFS)
+            if len(ticker_df) >= 2:
+                prev_close = float(ticker_df["Close"].iloc[-2])
+                daily_return = (latest_close / prev_close) - 1
+            else:
+                prev_close = latest_close
+                daily_return = 0.0
 
-            for ticker in LIVE_TICKERS:
-                try:
-                    if ticker_first:
-                        ticker_df = data[ticker].dropna()
-                    elif price_first:
-                        ticker_df = data.xs(ticker, axis=1, level=1).dropna()
-                    else:
-                        continue
+            rows.append({
+                "Ticker": ticker,
+                "Latest Price": latest_close,
+                "Previous Close": prev_close,
+                "Daily Return": daily_return
+            })
 
-                    if ticker_df.empty or "Close" not in ticker_df.columns:
-                        continue
+        except Exception:
+            continue
 
-                    latest_close = float(ticker_df["Close"].iloc[-1])
-
-                    if len(ticker_df) >= 2:
-                        prev_close = float(ticker_df["Close"].iloc[-2])
-                        daily_return = (latest_close / prev_close) - 1
-                    else:
-                        prev_close = latest_close
-                        daily_return = 0.0
-
-                    rows.append({
-                        "Ticker": ticker,
-                        "Latest Price": latest_close,
-                        "Previous Close": prev_close,
-                        "Daily Return": daily_return
-                    })
-                except Exception:
-                    continue
-
-        else:
-            ticker_df = data.dropna()
-            if not ticker_df.empty and "Close" in ticker_df.columns:
-                latest_close = float(ticker_df["Close"].iloc[-1])
-
-                if len(ticker_df) >= 2:
-                    prev_close = float(ticker_df["Close"].iloc[-2])
-                    daily_return = (latest_close / prev_close) - 1
-                else:
-                    prev_close = latest_close
-                    daily_return = 0.0
-
-                rows.append({
-                    "Ticker": BENCHMARK,
-                    "Latest Price": latest_close,
-                    "Previous Close": prev_close,
-                    "Daily Return": daily_return
-                })
-
-        return pd.DataFrame(rows)
-
-    except Exception as e:
-        st.error(f"Live data error: {e}")
-        return pd.DataFrame()
+    return pd.DataFrame(rows)
 
 
 if st.button("Refresh live data now"):
